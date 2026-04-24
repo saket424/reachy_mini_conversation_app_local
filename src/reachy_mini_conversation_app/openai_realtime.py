@@ -58,7 +58,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         self.connection: Any = None
         self.output_queue: "asyncio.Queue[Tuple[int, NDArray[np.int16]] | AdditionalOutputs]" = asyncio.Queue()
 
-        self.start_time = asyncio.get_event_loop().time()
+        try:
+            self.start_time = asyncio.get_running_loop().time()
+        except RuntimeError:
+            self.start_time = 0.0
         self.gradio_mode = gradio_mode
         self.instance_path = instance_path
         # Track how the API key was provided (env vs textbox) and its value

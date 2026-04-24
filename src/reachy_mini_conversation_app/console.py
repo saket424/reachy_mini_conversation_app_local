@@ -25,6 +25,7 @@ from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
+from reachy_mini_conversation_app.transcript_server import TranscriptServer
 
 
 try:
@@ -70,6 +71,7 @@ class LocalStream:
         self._instance_path: Optional[str] = instance_path
         self._settings_initialized = False
         self._asyncio_loop = None
+        self._transcript = TranscriptServer()
 
     # ---- Settings UI (only when API key is missing) ----
     def _read_env_lines(self, env_path: Path) -> list[str]:
@@ -253,7 +255,7 @@ class LocalStream:
         # GET /status -> whether key is set
         @self._settings_app.get("/status")
         def _status() -> JSONResponse:
-            has_key = bool(config.OPENAI_API_KEY and str(config.OPENAI_API_KEY).strip())
+            has_key = config.FULL_LOCAL_MODE or bool(getattr(config, "OPENAI_API_KEY", None) and str(config.OPENAI_API_KEY).strip())
             return JSONResponse({"has_key": has_key})
 
         # GET /ready -> whether backend finished loading tools
@@ -325,7 +327,7 @@ class LocalStream:
                     new_key = os.getenv("OPENAI_API_KEY", "").strip()
                     if new_key:
                         try:
-                            config.OPENAI_API_KEY = new_key
+                            config.OPENAI_API_KEY = new_key  # type: ignore[attr-defined]
                         except Exception:
                             pass
                     new_profile = os.getenv("REACHY_MINI_CUSTOM_PROFILE")
@@ -337,34 +339,34 @@ class LocalStream:
             except Exception:
                 pass
 
-        # If key is still missing, try to download one from HuggingFace
-        if not (config.OPENAI_API_KEY and str(config.OPENAI_API_KEY).strip()):
-            logger.info("OPENAI_API_KEY not set, attempting to download from HuggingFace...")
-            try:
-                from gradio_client import Client
-                client = Client("HuggingFaceM4/gradium_setup")
-                key, status = client.predict(api_name="/claim_b_key")
-                if key and key.strip():
-                    logger.info("Successfully downloaded API key from HuggingFace")
-                    # Persist it immediately
-                    self._persist_api_key(key)
-            except Exception as e:
-                logger.warning(f"Failed to download API key from HuggingFace: {e}")
-
         # Always expose settings UI if a settings app is available
-        # (do this AFTER loading/downloading the key so status endpoint sees the right value)
         self._init_settings_ui_if_needed()
 
-        # If key is still missing -> wait until provided via the settings UI
-        if not (config.OPENAI_API_KEY and str(config.OPENAI_API_KEY).strip()):
-            logger.warning("OPENAI_API_KEY not found. Open the app settings page to enter it.")
-            # Poll until the key becomes available (set via the settings UI)
-            try:
-                while not (config.OPENAI_API_KEY and str(config.OPENAI_API_KEY).strip()):
-                    time.sleep(0.2)
-            except KeyboardInterrupt:
-                logger.info("Interrupted while waiting for API key.")
-                return
+        if not config.FULL_LOCAL_MODE:
+            # If key is still missing, try to download one from HuggingFace
+            if not (getattr(config, "OPENAI_API_KEY", None) and str(config.OPENAI_API_KEY).strip()):
+                logger.info("OPENAI_API_KEY not set, attempting to download from HuggingFace...")
+                try:
+                    from gradio_client import Client
+                    client = Client("HuggingFaceM4/gradium_setup")
+                    key, status = client.predict(api_name="/claim_b_key")
+                    if key and key.strip():
+                        logger.info("Successfully downloaded API key from HuggingFace")
+                        self._persist_api_key(key)
+                except Exception as e:
+                    logger.warning(f"Failed to download API key from HuggingFace: {e}")
+
+            # If key is still missing -> wait until provided via the settings UI
+            if not (getattr(config, "OPENAI_API_KEY", None) and str(config.OPENAI_API_KEY).strip()):
+                logger.warning("OPENAI_API_KEY not found. Open the app settings page to enter it.")
+                try:
+                    while not (getattr(config, "OPENAI_API_KEY", None) and str(config.OPENAI_API_KEY).strip()):
+                        time.sleep(0.2)
+                except KeyboardInterrupt:
+                    logger.info("Interrupted while waiting for API key.")
+                    return
+
+        self._transcript.start()
 
         # Start media after key is set/available
         self._robot.media.start_recording()
@@ -460,11 +462,13 @@ class LocalStream:
                 for msg in handler_output.args:
                     content = msg.get("content", "")
                     if isinstance(content, str):
+                        role = msg.get("role", "assistant")
                         logger.info(
                             "role=%s content=%s",
-                            msg.get("role"),
+                            role,
                             content if len(content) < 500 else content[:500] + "…",
                         )
+                        self._transcript.push(role, content)
 
             elif isinstance(handler_output, tuple):
                 input_sample_rate, audio_data = handler_output

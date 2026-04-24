@@ -1,8 +1,30 @@
-**# Reachy Mini Conversation App
+# Reachy Mini Conversation App (macOS Fork)
 
 **Fully local conversational AI for Reachy Mini robot** - combining lightweight speech recognition, text-to-speech, and local LLM with choreographed motion libraries.
 
+This is a fork of [dwain-barnes/reachy_mini_conversation_app_local](https://github.com/dwain-barnes/reachy_mini_conversation_app_local) with changes to run on **macOS (Apple Silicon)** over wireless (GStreamer/WebRTC).
+
 ![Reachy Mini Dance](docs/assets/reachy_mini_dance.gif)
+
+## What's Changed in This Fork
+
+### macOS Wireless Support
+- **`install_mac_wireless.sh`** — One-step installer that handles all the dependency conflicts for macOS:
+  - Works around `libusb_package>=1.0.26.3` not existing on PyPI (not needed for wireless)
+  - Fixes GStreamer Python dylib path mismatch between Homebrew and python.org layouts
+  - Handles overly strict version caps in `gst-signalling`, `reachy_mini_dances_library`, etc.
+  - Pre-downloads ASR (Distil-Whisper) and TTS (Kokoro) models
+- **`run`** — Convenience script to activate venv and launch in wireless mode
+
+### Live Transcript Viewer
+- **`transcript_server.py`** — Lightweight HTTP + SSE server that streams the conversation in real time
+- Accessible at `http://localhost:7862` — shows a chat-style view of user and assistant messages
+- Integrated into `console.py` so transcripts are pushed automatically during conversation
+
+### Bug Fixes
+- **`main.py`** — Fixed `robot.client.get_status()["simulation_enabled"]` → `.simulation_enabled` (attribute access, not dict)
+- **`openai_realtime.py`** — Fixed `asyncio.get_event_loop()` crash by using `asyncio.get_running_loop()` with a fallback
+- **`console.py`** — Added `FULL_LOCAL_MODE` support to skip OpenAI API key checks when running fully local
 
 ## Features
 
@@ -11,7 +33,7 @@
 - 🤖 **Local LLM** - Powered by Ollama or LM Studio for on-device conversation
 - 💃 **Motion System** - Layered motion with dances, emotions, face-tracking, and speech-reactive movement
 - 🎨 **Custom Personalities** - Easy profile system for different robot behaviors
-- 🔧 **Edge-Optimized** - Designed for Jetson Nano and similar edge devices
+- 📝 **Live Transcript** - Real-time chat viewer at `http://localhost:7862`
 
 ## Prerequisites
 
@@ -22,27 +44,23 @@
 > - **Real hardware** - Physical Reachy Mini robot
 > - **Simulator** - Virtual Reachy Mini for testing
 
-## Quick Start
+## Quick Start (macOS Wireless)
 
-### 1. Install the App
+### 1. Install
 
 ```bash
-# Clone repository
-git clone <repo-url>
-cd reachy_mini_conversation_app
+git clone https://github.com/saket424/reachy_mini_conversation_app_local.git
+cd reachy_mini_conversation_app_local
 
-# Install dependencies
-pip install -e "."
-
-# For Jetson Nano with CUDA optimization:
-pip install -e ".[jetson]"
+# Run the macOS installer (handles all dependency workarounds)
+./install_mac_wireless.sh
 ```
 
 ### 2. Install Local LLM
 
 **Ollama (Recommended):**
 ```bash
-curl -fsSL https://ollama.com/install.sh | sh
+brew install ollama
 ollama pull phi-3-mini-4k-instruct
 ```
 
@@ -54,14 +72,35 @@ ollama pull phi-3-mini-4k-instruct
 ### 3. Configure
 
 ```bash
-# Copy example config
 cp .env.example .env
-
-# Edit if needed (defaults work for most setups)
 nano .env
 ```
 
 ### 4. Run
+
+```bash
+source .venv/bin/activate
+reachy-mini-conversation-app --wireless-version
+```
+
+Or simply:
+```bash
+./run
+```
+
+The live transcript viewer will be available at `http://localhost:7862`.
+
+## Quick Start (Linux / General)
+
+### 1. Install
+
+```bash
+git clone https://github.com/saket424/reachy_mini_conversation_app_local.git
+cd reachy_mini_conversation_app_local
+pip install -e "."
+```
+
+### 2. Run
 
 **Console mode (headless):**
 ```bash
@@ -85,9 +124,7 @@ The app auto-configures for your hardware. Key settings in `.env`:
 | `OLLAMA_MODEL` | `phi-3-mini-4k-instruct` | Ollama model name |
 | `DISTIL_WHISPER_MODEL` | `distil-small.en` | Speech recognition model |
 | `KOKORO_VOICE` | `af_sarah` | TTS voice (af_sarah, am_michael, etc.) |
-| `JETSON_OPTIMIZE` | `true` | Enable Jetson-specific optimizations |
-
-See `.env.jetson` for Jetson Nano optimized settings.
+| `FULL_LOCAL_MODE` | `false` | Skip OpenAI API key requirement |
 
 ## CLI Options
 
@@ -145,33 +182,6 @@ Create custom robot personalities with unique behaviors:
 
 See `profiles/example/` for reference.
 
-**Live editing with Gradio UI:**
-- Use the "Personality" panel to switch profiles
-- Create new personalities directly from the UI
-- Changes apply immediately to current session
-
-
-**Expected performance:**
-- End-to-end latency: <3 seconds
-- Memory usage: ~3GB peak
-- Fully offline operation
-
-## Troubleshooting
-
-**TimeoutError connecting to robot:**
-```bash
-# Start the Reachy Mini daemon first
-# See: https://github.com/pollen-robotics/reachy_mini/
-```
-
-**No audio output:**
-- Check TTS voice is valid: `af_sarah`, `am_michael`, `bf_emma`, `bm_lewis`
-- Verify Ollama/LM Studio is running: `curl http://localhost:11434` or `:1234`
-
-**Out of memory (Jetson):**
-- Use smaller model: `OLLAMA_MODEL=llama3.2:1b`
-- Disable vision: `--no-camera`
-
 ## Architecture
 
 ```
@@ -189,18 +199,21 @@ All processing runs locally using:
 - **TTS**: Kokoro-82M via FastRTC (production quality)
 - **Framework**: FastRTC for low-latency audio streaming
 
-## Development
+## Troubleshooting
 
+**TimeoutError connecting to robot:**
 ```bash
-# Install dev tools
-pip install -e ".[dev]"
-
-# Run linter
-ruff check .
-
-# Run tests
-pytest
+# Start the Reachy Mini daemon first
+# See: https://github.com/pollen-robotics/reachy_mini/
 ```
+
+**No audio output:**
+- Check TTS voice is valid: `af_sarah`, `am_michael`, `bf_emma`, `bm_lewis`
+- Verify Ollama/LM Studio is running: `curl http://localhost:11434` or `:1234`
+
+**GStreamer plugin errors on macOS:**
+- Re-run `install_mac_wireless.sh` — it creates the needed Python framework symlink
+- Check that `gstreamer-bundle` is installed: `pip list | grep gstreamer`
 
 ## License
 
@@ -209,5 +222,5 @@ Apache 2.0
 ---
 
 **Built for edge deployment** - Optimized for any hardware with 8GB+ RAM.
-**
-** Thanks to muellerzr for his fork **
+
+Thanks to [dwain-barnes](https://github.com/dwain-barnes) for the original app and [muellerzr](https://github.com/muellerzr) for his fork.

@@ -74,7 +74,7 @@ def run(
             robot = ReachyMini(media_backend="default")
 
     # Check if running in simulation mode without --gradio
-    if robot.client.get_status()["simulation_enabled"] and not args.gradio:
+    if robot.client.get_status().simulation_enabled and not args.gradio:
         logger.error(
             "Simulation mode requires Gradio interface. Please use --gradio flag when running in simulation mode.",
         )
