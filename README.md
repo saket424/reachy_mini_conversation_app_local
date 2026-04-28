@@ -156,18 +156,40 @@ pip install -e ".[dev]"  # Testing & linting tools
 
 ## Available Tools
 
-The LLM has access to these robot actions:
+The LLM can invoke tools via function calling during conversation. Tools are loaded per-profile from `tools.txt` and follow the `Tool` base class in `tools/core_tools.py`. When the model decides a tool is needed, it returns a tool call, the app executes it, and feeds the result back to the model for a final spoken response.
 
-| Tool | Action |
-|------|--------|
-| `move_head` | Move head (left/right/up/down/front) |
-| `camera` | Capture and analyze camera image |
-| `head_tracking` | Enable/disable face tracking |
-| `dance` | Play choreographed dance |
-| `stop_dance` | Stop current dance |
-| `play_emotion` | Display emotion animation |
-| `stop_emotion` | Stop emotion animation |
-| `do_nothing` | Remain idle |
+### Robot Motion
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `move_head` | Move the robot's head in a given direction | `direction`: `left`, `right`, `up`, `down`, or `front` |
+| `dance` | Play a named or random choreographed dance move (18+ available). Non-blocking | `move_name` (optional): specific dance name; `repeat` (optional): number of times |
+| `stop_dance` | Stop the currently playing dance move | — |
+| `play_emotion` | Play a pre-recorded emotion animation on the robot | `emotion`: emotion name to play |
+| `stop_emotion` | Stop the currently playing emotion animation | — |
+| `head_tracking` | Toggle face tracking on or off — enables the robot to follow a person's face | `enabled`: `true` or `false` |
+
+### Vision
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `camera` | Capture a photo with the robot's camera and ask a vision model a question about it | `question`: what to ask about the image |
+
+### Web & Information
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `web_search` | Search the web via DuckDuckGo for current events, news, sports scores, weather, or any real-time information | `query`: the search query |
+
+### Utility
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `do_nothing` | Stay still and silent — used when the robot chooses to be contemplative | `reason` (optional): why it's doing nothing |
+
+### Adding Custom Tools
+
+Profiles can define custom tools in `profiles/<name>/custom_tool.py`. See `profiles/example/` for a template. Add the tool name to `tools.txt` (one per line) to enable it.
 
 ## Custom Personalities
 

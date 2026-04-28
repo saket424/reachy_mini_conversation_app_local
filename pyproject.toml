@@ -33,6 +33,7 @@ dependencies = [
     "transformers",
     "accelerate",
     "scipy",
+    "ddgs>=9.0.0",
 ]
 
 [project.optional-dependencies]

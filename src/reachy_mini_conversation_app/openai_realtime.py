@@ -504,6 +504,30 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         else:
             logger.warning("Local LLM not available, cannot generate response")
 
+    def _get_local_tool_specs(self) -> list[dict[str, Any]]:
+        """Get tool specs formatted for the OpenAI-compatible API."""
+        raw_specs = get_tool_specs()
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": spec["name"],
+                    "description": spec["description"],
+                    "parameters": spec["parameters"],
+                },
+            }
+            for spec in raw_specs
+        ]
+
+    def _clean_thinking_tags(self, text: str) -> str:
+        """Remove thinking tags from model output."""
+        import re
+        if "<think>" in text:
+            text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+        if "<thinking>" in text:
+            text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL).strip()
+        return text
+
     async def _generate_local_response(self, user_message: str) -> None:
         """Generate a response using the local LLM and send to Chatterbox.
 
@@ -516,51 +540,69 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
             return
 
         try:
-            # Add user message to conversation history
             self._conversation_history.append({"role": "user", "content": user_message})
 
-            # Build messages with system prompt
-            messages = [
+            messages: list[dict[str, Any]] = [
                 {"role": "system", "content": get_session_instructions()},
-                *self._conversation_history[-20:]  # Keep last 20 messages for context
+                *self._conversation_history[-20:],
             ]
 
-            logger.debug("Calling local LLM with %d messages", len(messages))
+            tool_specs = self._get_local_tool_specs()
+            logger.debug("Calling local LLM with %d messages, %d tools", len(messages), len(tool_specs))
 
-            # Call local LLM (no tool support - using base instruct model)
-            response = await self._local_llm_client.chat.completions.create(
-                model=self._local_llm_model,
-                messages=messages,
-                max_tokens=512,
-                temperature=0.7,
-            )
+            create_kwargs: dict[str, Any] = {
+                "model": self._local_llm_model,
+                "messages": messages,
+                "max_tokens": 512,
+                "temperature": 0.7,
+            }
+            if tool_specs:
+                create_kwargs["tools"] = tool_specs
+                create_kwargs["tool_choice"] = "auto"
 
+            response = await self._local_llm_client.chat.completions.create(**create_kwargs)
             choice = response.choices[0]
             assistant_message = choice.message
 
-            # Get the text content
-            text_response = assistant_message.content
-            if text_response:
-                # Clean up thinking tags from various models (Qwen, DeepSeek, etc.)
-                import re
-                # Remove <think>...</think> tags (Qwen style)
-                if "<think>" in text_response:
-                    text_response = re.sub(r'<think>.*?</think>', '', text_response, flags=re.DOTALL).strip()
-                # Remove <thinking>...</thinking> tags (other models)
-                if "<thinking>" in text_response:
-                    text_response = re.sub(r'<thinking>.*?</thinking>', '', text_response, flags=re.DOTALL).strip()
+            # Handle tool calls if the model requested any
+            if assistant_message.tool_calls:
+                messages.append(assistant_message.model_dump())
 
+                for tool_call in assistant_message.tool_calls:
+                    fn = tool_call.function
+                    logger.info("LLM requested tool call: %s(%s)", fn.name, fn.arguments)
+
+                    result = await dispatch_tool_call(fn.name, fn.arguments, self.deps)
+                    logger.info("Tool result for %s: %s", fn.name, str(result)[:200])
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(result),
+                    })
+
+                # Second LLM call to generate final response with tool results
+                follow_up = await self._local_llm_client.chat.completions.create(
+                    model=self._local_llm_model,
+                    messages=messages,
+                    max_tokens=512,
+                    temperature=0.7,
+                )
+                text_response = follow_up.choices[0].message.content or ""
+            else:
+                text_response = assistant_message.content or ""
+
+            text_response = self._clean_thinking_tags(text_response)
+
+            if text_response:
                 logger.info("Local LLM response: %s", text_response[:100])
 
-                # Add to conversation history
                 self._conversation_history.append({"role": "assistant", "content": text_response})
 
-                # Show in UI
                 await self.output_queue.put(
                     AdditionalOutputs({"role": "assistant", "content": text_response})
                 )
 
-                # Synthesize with local TTS
                 await self._synthesize_locally(text_response)
 
         except Exception as e:
