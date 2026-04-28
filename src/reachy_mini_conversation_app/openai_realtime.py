@@ -92,6 +92,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         self._is_speech_active: bool = False
         self._vad_processing: bool = False  # Prevent concurrent processing
 
+        # Push-to-talk: when enabled, audio is only processed while listening is active
+        self._push_to_talk: bool = config.PUSH_TO_TALK
+        self._listening_enabled: bool = not config.PUSH_TO_TALK
+
         # External VAD endpoint (optional - for smart turn detection)
         self._local_vad_endpoint: str | None = config.LOCAL_VAD_ENDPOINT
         if self._local_vad_endpoint:
@@ -153,6 +157,20 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         """Check if we're in full local mode (no data sent to OpenAI)."""
         # Always True - fully local operation only
         return True
+
+    def set_listening_enabled(self, enabled: bool) -> None:
+        """Enable or disable audio processing (for push-to-talk)."""
+        self._listening_enabled = enabled
+        if not enabled and self._is_speech_active:
+            self._is_speech_active = False
+            self._audio_buffer.clear()
+            self._local_vad.reset()
+            self.deps.movement_manager.set_listening(False)
+
+    def toggle_listening(self) -> bool:
+        """Toggle listening state. Returns the new state."""
+        self.set_listening_enabled(not self._listening_enabled)
+        return self._listening_enabled
 
     def copy(self) -> "OpenaiRealtimeHandler":
         """Create a copy of the handler."""
@@ -1194,6 +1212,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
         # Full local mode: use built-in VAD + ASR + LLM + TTS
         if self._is_full_local_mode:
+            if self._push_to_talk and not self._listening_enabled:
+                return
+
             # Process with built-in VAD
             speech_started, speech_ended = self._local_vad.process(audio_frame)
 

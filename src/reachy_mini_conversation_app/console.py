@@ -11,9 +11,13 @@ app instance's ``.env`` file (if available) and proceed to start streaming.
 
 import os
 import sys
+import tty
 import time
+import select
 import asyncio
 import logging
+import termios
+import threading
 from typing import List, Optional
 from pathlib import Path
 
@@ -305,6 +309,38 @@ class LocalStream:
 
         self._settings_initialized = True
 
+    def _keyboard_listener(self) -> None:
+        """Listen for SPACE key to toggle push-to-talk in a background thread."""
+        if not self.handler._push_to_talk:
+            return
+        if not sys.stdin.isatty():
+            return
+
+        old_settings = termios.tcgetattr(sys.stdin)
+        try:
+            tty.setcbreak(sys.stdin.fileno())
+            logger.info("Push-to-talk: Press SPACE to start listening, SPACE again to stop.")
+            while not self._stop_event.is_set():
+                ready, _, _ = select.select([sys.stdin], [], [], 0.2)
+                if not ready:
+                    continue
+                ch = sys.stdin.read(1)
+                if ch == "\x03":
+                    raise KeyboardInterrupt
+                if ch == " ":
+                    now_listening = self.handler.toggle_listening()
+                    if now_listening:
+                        logger.info("[LISTENING] Microphone active - speak now")
+                    else:
+                        logger.info("[STOPPED] Microphone paused")
+        except (KeyboardInterrupt, OSError):
+            pass
+        finally:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
+
     def launch(self) -> None:
         """Start the recorder/player and run the async processing loops.
 
@@ -367,6 +403,11 @@ class LocalStream:
                     return
 
         self._transcript.start()
+
+        # Start push-to-talk keyboard listener if enabled
+        if self.handler._push_to_talk:
+            self._kb_thread = threading.Thread(target=self._keyboard_listener, daemon=True)
+            self._kb_thread.start()
 
         # Start media after key is set/available
         self._robot.media.start_recording()
