@@ -22,6 +22,10 @@ _HTML = """\
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reachy Mini – Live Transcript</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -49,6 +53,19 @@ _HTML = """\
   }
   .msg .role { font-size: 0.7rem; color: #888; margin-bottom: 0.15rem; }
   .msg .ts   { font-size: 0.65rem; color: #555; margin-top: 0.2rem; text-align: right; }
+  .card {
+    align-self: stretch; max-width: 100%; padding: 0.6rem 0.9rem;
+    background: #1c2630; color: #e0e0e0; border-radius: 0.75rem;
+    border: 1px solid #2a3a4a; animation: fadein 0.2s ease-in;
+  }
+  .card .title { font-size: 0.85rem; color: #9ec5ff; margin-bottom: 0.4rem; }
+  .card .map   { width: 100%; height: 280px; border-radius: 0.5rem; margin: 0.4rem 0; }
+  .card .kv    { font-size: 0.85rem; color: #cfd6dd; }
+  .card .kv div { display: flex; justify-content: space-between; padding: 0.15rem 0; border-bottom: 1px dashed #2a3a4a; }
+  .card .kv div:last-child { border-bottom: none; }
+  .card .kv .k { color: #8fa3b8; }
+  .card .kv .v { color: #e8eef5; font-variant-numeric: tabular-nums; }
+  .card .ts    { font-size: 0.65rem; color: #555; margin-top: 0.4rem; text-align: right; }
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
@@ -59,7 +76,10 @@ _HTML = """\
 <script>
 const tx = document.getElementById("transcript");
 const st = document.getElementById("status");
+let mapSeq = 0;
+
 function addMsg(d) {
+  if (d.kind === "map") return addMap(d);
   const el = document.createElement("div");
   el.className = "msg " + (d.role || "assistant");
   const rl = document.createElement("div");
@@ -78,6 +98,58 @@ function addMsg(d) {
   tx.appendChild(el);
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 }
+
+function addMap(d) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const title = document.createElement("div");
+  title.className = "title";
+  title.textContent = d.title || "Map";
+  el.appendChild(title);
+
+  const mapId = "map-" + (++mapSeq);
+  const mapDiv = document.createElement("div");
+  mapDiv.className = "map";
+  mapDiv.id = mapId;
+  el.appendChild(mapDiv);
+
+  if (Array.isArray(d.values) && d.values.length) {
+    const kv = document.createElement("div");
+    kv.className = "kv";
+    d.values.forEach(([k, v]) => {
+      const row = document.createElement("div");
+      const ks = document.createElement("span"); ks.className = "k"; ks.textContent = k;
+      const vs = document.createElement("span"); vs.className = "v"; vs.textContent = v;
+      row.appendChild(ks); row.appendChild(vs);
+      kv.appendChild(row);
+    });
+    el.appendChild(kv);
+  }
+
+  if (d.time) {
+    const ts = document.createElement("div");
+    ts.className = "ts";
+    ts.textContent = d.time;
+    el.appendChild(ts);
+  }
+
+  tx.appendChild(el);
+
+  // Init Leaflet after the div is in the DOM.
+  const lat = Number(d.lat), lon = Number(d.lon);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    const m = L.map(mapId, { scrollWheelZoom: false }).setView([lat, lon], d.zoom || 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(m);
+    const marker = L.marker([lat, lon]).addTo(m);
+    if (d.popup) marker.bindPopup(d.popup).openPopup();
+  }
+
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
 function connect() {
   const es = new EventSource("/events");
   es.onopen = () => { st.textContent = "connected"; };
@@ -115,10 +187,23 @@ class TranscriptServer:
 
     def push(self, role: str, content: str) -> None:
         entry = {
+            "kind": "text",
             "role": role,
             "content": content,
             "time": time.strftime("%H:%M:%S"),
         }
+        self._broadcast(entry)
+
+    def push_card(self, payload: Dict[str, Any]) -> None:
+        """Push a structured card (e.g. Leaflet map) to the viewer."""
+        entry = {
+            "kind": payload.get("kind", "map"),
+            "time": time.strftime("%H:%M:%S"),
+            **{k: v for k, v in payload.items() if k != "kind"},
+        }
+        self._broadcast(entry)
+
+    def _broadcast(self, entry: Dict[str, Any]) -> None:
         with self._lock:
             self._history.append(entry)
             for q in self._subscribers:

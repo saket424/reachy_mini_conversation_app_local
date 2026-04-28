@@ -54,6 +54,7 @@ class ToolDependencies:
     camera_worker: Any | None = None  # CameraWorker for frame buffering
     vision_manager: Any | None = None
     head_wobbler: Any | None = None  # HeadWobbler for audio-reactive motion
+    transcript_server: Any | None = None  # TranscriptServer for pushing rich UI cards
     motion_duration_s: float = 1.0
 
 

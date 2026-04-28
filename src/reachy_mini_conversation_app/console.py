@@ -59,11 +59,13 @@ class LocalStream:
         *,
         settings_app: Optional[FastAPI] = None,
         instance_path: Optional[str] = None,
+        transcript_server: Optional[TranscriptServer] = None,
     ):
         """Initialize the stream with an OpenAI realtime handler and pipelines.
 
         - ``settings_app``: the Reachy Mini Apps FastAPI to attach settings endpoints.
         - ``instance_path``: directory where per-instance ``.env`` should be stored.
+        - ``transcript_server``: optional shared TranscriptServer; one is created if not given.
         """
         self.handler = handler
         self._robot = robot
@@ -75,7 +77,7 @@ class LocalStream:
         self._instance_path: Optional[str] = instance_path
         self._settings_initialized = False
         self._asyncio_loop = None
-        self._transcript = TranscriptServer()
+        self._transcript = transcript_server or TranscriptServer()
 
     # ---- Settings UI (only when API key is missing) ----
     def _read_env_lines(self, env_path: Path) -> list[str]:

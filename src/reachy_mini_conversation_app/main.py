@@ -47,6 +47,7 @@ def run(
     from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
     from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
     from reachy_mini_conversation_app.audio.head_wobbler import HeadWobbler
+    from reachy_mini_conversation_app.transcript_server import TranscriptServer
 
     logger = setup_logger(args.debug)
     logger.info("Starting Reachy Mini Conversation App")
@@ -89,6 +90,7 @@ def run(
     )
 
     head_wobbler = HeadWobbler(set_speech_offsets=movement_manager.set_speech_offsets)
+    transcript_server = TranscriptServer()
 
     deps = ToolDependencies(
         reachy_mini=robot,
@@ -96,6 +98,7 @@ def run(
         camera_worker=camera_worker,
         vision_manager=vision_manager,
         head_wobbler=head_wobbler,
+        transcript_server=transcript_server,
     )
     current_file_path = os.path.dirname(os.path.abspath(__file__))
     logger.debug(f"Current file absolute path: {current_file_path}")
@@ -154,6 +157,7 @@ def run(
             robot,
             settings_app=settings_app,
             instance_path=instance_path,
+            transcript_server=transcript_server,
         )
 
     # Each async service → its own thread/loop
