@@ -9,3 +9,5 @@ move_head
 web_search
 home_assistant
 water_data
+wildfire_activity
+air_quality

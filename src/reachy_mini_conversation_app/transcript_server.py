@@ -136,15 +136,36 @@ function addMap(d) {
   tx.appendChild(el);
 
   // Init Leaflet after the div is in the DOM.
-  const lat = Number(d.lat), lon = Number(d.lon);
-  if (Number.isFinite(lat) && Number.isFinite(lon)) {
-    const m = L.map(mapId, { scrollWheelZoom: false }).setView([lat, lon], d.zoom || 13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap'
-    }).addTo(m);
-    const marker = L.marker([lat, lon]).addTo(m);
-    if (d.popup) marker.bindPopup(d.popup).openPopup();
+  const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileOpts = { maxZoom: 19, attribution: '&copy; OpenStreetMap' };
+
+  if (Array.isArray(d.markers) && d.markers.length) {
+    const m = L.map(mapId, { scrollWheelZoom: false });
+    L.tileLayer(tileUrl, tileOpts).addTo(m);
+    const layers = [];
+    d.markers.forEach((mk) => {
+      const la = Number(mk.lat), lo = Number(mk.lon);
+      if (!Number.isFinite(la) || !Number.isFinite(lo)) return;
+      const marker = L.marker([la, lo]).addTo(m);
+      if (mk.popup) marker.bindPopup(mk.popup);
+      layers.push(marker);
+    });
+    if (layers.length === 1) {
+      m.setView(layers[0].getLatLng(), d.zoom || 10);
+      if (d.markers[0].popup) layers[0].openPopup();
+    } else if (layers.length > 1) {
+      m.fitBounds(L.featureGroup(layers).getBounds().pad(0.15));
+    } else {
+      m.setView([39.5, -98.35], 4);  // fallback: continental US
+    }
+  } else {
+    const lat = Number(d.lat), lon = Number(d.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      const m = L.map(mapId, { scrollWheelZoom: false }).setView([lat, lon], d.zoom || 13);
+      L.tileLayer(tileUrl, tileOpts).addTo(m);
+      const marker = L.marker([lat, lon]).addTo(m);
+      if (d.popup) marker.bindPopup(d.popup).openPopup();
+    }
   }
 
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
