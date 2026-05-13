@@ -154,6 +154,30 @@ pip install -e ".[jetson]"                 # Jetson optimization (CUDA)
 pip install -e ".[dev]"  # Testing & linting tools
 ```
 
+## Home Assistant Integration (optional)
+
+This fork can run alongside the **[`reachy_mini_home_assistant`](https://github.com/ha-china/Reachy_Mini_For_Home_Assistant)** ESPHome bridge, which exposes Reachy as an ESPHome device in Home Assistant (~56 entities + an "okay nabu" voice satellite that uses HA's STT/TTS).
+
+> [!NOTE]
+> The Home Assistant bridge lives in a **separate repository** — it is **not** vendored here and must be cloned yourself. The `run-all` script below expects it at `./Reachy_Mini_For_Home_Assistant/`.
+
+```bash
+# Clone the bridge next to this repo
+git clone https://github.com/ha-china/Reachy_Mini_For_Home_Assistant.git
+
+# Install it into the same venv (downgrades torch -> 2.5.1 and numpy -> 2.2.5; both still work here)
+source .venv/bin/activate
+pip install -e ./Reachy_Mini_For_Home_Assistant
+pip install "torchaudio==2.5.1"   # keep torchaudio in sync with the downgraded torch
+
+# Run the conversation app AND the HA bridge together
+./run-all
+```
+
+`run-all` starts the conversation app in the foreground and the HA bridge in the background. The bridge runs with `REACHY_HA_NO_MOTION=1`, so **only the conversation app drives Reachy's head movement / animations** — the bridge just serves entities + the voice satellite. (`MOTION_OUTPUT_DISABLED` in the bridge's `core/config.py` defaults to on; set `REACHY_HA_NO_MOTION=0` if you ever want the standalone bridge to drive the robot itself.) Set `RUN_ALL_HA_CAMERA=1` to also run the bridge's MJPEG camera server on `:8081`. Stop both with Ctrl-C.
+
+Note: the bridge needs a small local patch (the `REACHY_HA_NO_MOTION` motion gate) on top of `ha-china/develop`; if you re-clone it fresh you'll need to re-apply that.
+
 ## Available Tools
 
 The LLM can invoke tools via function calling during conversation. Tools are loaded per-profile from `tools.txt` and follow the `Tool` base class in `tools/core_tools.py`. When the model decides a tool is needed, it returns a tool call, the app executes it, and feeds the result back to the model for a final spoken response.
@@ -180,6 +204,15 @@ The LLM can invoke tools via function calling during conversation. Tools are loa
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `web_search` | Search the web via DuckDuckGo for current events, news, sports scores, weather, or any real-time information | `query`: the search query |
+| `water_data` | Look up real-time USGS river/stream data for a US monitoring station and show it on a map in the transcript viewer | `site_id`, or `state` + `name_search` |
+| `wildfire_activity` | Look up active US wildfire incidents (NIFC WFIGS feed) and plot them as map markers | `state` (optional), `min_acres` (optional) |
+| `air_quality` | Current air-quality readings (US AQI, PM2.5/PM10, ozone, NO₂, SO₂, CO) for anywhere in the world, shown on a map | `place`, or `latitude` + `longitude` |
+
+### Home Assistant
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `home_assistant` | Query or control a Home Assistant instance over its REST API — list/read entity states or call services (lights, switches, climate, …). Requires `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN` env vars | `action`: `get_states` \| `get_state` \| `call_service`; plus `entity_id` / `domain` / `service` / `service_data` as needed |
 
 ### Utility
 

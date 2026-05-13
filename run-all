@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# run-all — start BOTH the conversation app and the Home Assistant ESPHome bridge.
+#
+#   * Conversation app (foreground)  — owns ALL of Reachy's head movement / animations.
+#   * Home Assistant bridge (background) — exposes the ~56 Reachy entities + voice
+#       satellite (wake word "okay nabu" -> HA STT/TTS) to Home Assistant on :6053.
+#       Started with REACHY_HA_NO_MOTION=1 so it never sends pose commands to the robot.
+#
+# Stop everything with Ctrl-C.
+#
+# Env overrides:
+#   REACHY_ESPHOME_PORT   ESPHome server port for the HA bridge (default 6053)
+#   RUN_ALL_HA_CAMERA=1   also run the HA bridge's camera (MJPEG :8081 + face tracking).
+#                         Off by default to avoid contending with the conversation app
+#                         for the robot's WebRTC video stream.
+
+cd "$(dirname "$0")" || exit 1
+# shellcheck disable=SC1091
+source .venv/bin/activate
+
+HA_PORT="${REACHY_ESPHOME_PORT:-6053}"
+HA_CAMERA_FLAG="--no-camera"
+[ "${RUN_ALL_HA_CAMERA:-0}" = "1" ] && HA_CAMERA_FLAG=""
+
+# --- Home Assistant ESPHome bridge: background, motion output disabled ---
+REACHY_HA_NO_MOTION=1 python -m reachy_mini_home_assistant --port "$HA_PORT" $HA_CAMERA_FLAG &
+HA_PID=$!
+echo "[run-all] Home Assistant bridge started (pid $HA_PID — ESPHome on :$HA_PORT, robot motion DISABLED)"
+
+cleanup() {
+    echo
+    echo "[run-all] stopping Home Assistant bridge (pid $HA_PID)..."
+    kill "$HA_PID" 2>/dev/null
+    wait "$HA_PID" 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+# --- Conversation app: foreground; owns head movement. Extra args pass through. ---
+echo "[run-all] starting conversation app (--wireless-version)..."
+reachy-mini-conversation-app --wireless-version "$@"

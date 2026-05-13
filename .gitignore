@@ -1,3 +1,10 @@
+# Deck-to-pptx export cache (scripts/decks_to_pptx.py)
+scripts/.deck-export-cache/
+
+# Optional Home Assistant ESPHome bridge — its own repo, cloned separately
+# (see "Home Assistant Integration" in README.md)
+Reachy_Mini_For_Home_Assistant/
+
 # Python
 __pycache__/
 *.py[cod]
